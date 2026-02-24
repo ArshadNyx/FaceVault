@@ -1,0 +1,7 @@
+{
+  "dark_mode": false,
+  "sound_enabled": false,
+  "auto_lock": false,
+  "auto_lock_timeout": 30,
+  "show_confidence": true
+}

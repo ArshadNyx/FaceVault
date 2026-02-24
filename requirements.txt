@@ -1,0 +1,8 @@
+# Face Unlock Desktop Application Dependencies
+# Using OpenCV built-in face detection for easier installation
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+cryptography>=41.0.0
+mediapipe>=0.10.5
