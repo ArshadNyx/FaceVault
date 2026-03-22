@@ -384,7 +384,7 @@ async def list_users():
 
 @app.delete("/api/users/{username}")
 async def delete_user(username: str):
-    success = state.face_reg.delete_user(username)
+    success, _ = state.face_reg.delete_user(username)
     if success:
         state.face_auth = FaceAuthentication()
         state.log_activity("User Management", f"User '{username}' deleted", "warning")
@@ -441,4 +441,4 @@ async def websocket_endpoint(ws: WebSocket):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)

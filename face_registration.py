@@ -238,7 +238,11 @@ class FaceRegistration:
         if self.storage.user_exists(username):
             return False, f"User '{username}' already exists."
         
-        face_locations = self.detect_faces(frame)
+        # Use direct detection (bypass frame-skipping meant for video streams)
+        if self.use_yunet:
+            face_locations = self._detect_yunet(frame)
+        else:
+            face_locations = self._detect_haar_fast(frame)
         
         if len(face_locations) == 0:
             return False, "No face detected. Please try again."
