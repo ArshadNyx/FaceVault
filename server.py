@@ -4,9 +4,11 @@ Professional face authentication service with REST API support.
 """
 
 import asyncio
+import atexit
 import base64
 import json
 import os
+import signal
 import time
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -94,13 +96,14 @@ class AppState:
     def stop_camera(self):
         self.camera_active = False
         # Small delay to let any active MJPEG generator exit its loop
-        time.sleep(0.1)
-        if self.camera is not None:
+        time.sleep(0.15)
+        cam = self.camera
+        self.camera = None
+        if cam is not None:
             try:
-                self.camera.release()
+                cam.release()
             except Exception:
                 pass
-            self.camera = None
 
     def get_frame(self):
         if self.camera is None or not self.camera_active:
@@ -113,12 +116,37 @@ state = AppState()
 
 
 # ---------------------------------------------------------------------------
+# Ensure camera is ALWAYS released — even on Ctrl+C or crash
+# ---------------------------------------------------------------------------
+def _force_release_camera():
+    """Release camera hardware no matter how the process exits."""
+    if state.camera is not None:
+        try:
+            state.camera.release()
+        except Exception:
+            pass
+        state.camera = None
+    state.camera_active = False
+    # Also release any OpenCV camera that might be lingering
+    cv2.destroyAllWindows()
+
+atexit.register(_force_release_camera)
+
+def _signal_handler(sig, frame):
+    _force_release_camera()
+    raise SystemExit(0)
+
+signal.signal(signal.SIGINT, _signal_handler)
+signal.signal(signal.SIGTERM, _signal_handler)
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
-    state.stop_camera()
+    _force_release_camera()
 
 
 # ---------------------------------------------------------------------------

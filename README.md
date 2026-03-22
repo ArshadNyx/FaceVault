@@ -75,7 +75,7 @@ A professional biometric face authentication system built with **FastAPI**, **Op
 ### Step 1: Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/ArshadNyx/FaceVault.git
 cd face-unlock-system
 ```
 
