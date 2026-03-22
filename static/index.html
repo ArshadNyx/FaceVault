@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Unlock System</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+</head>
+<body>
+
+<div class="toast-container" id="toast-container"></div>
+
+<div class="app-container">
+
+    <!-- ======================== HEADER ======================== -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo-icon">🔐</div>
+            <div class="logo-text">
+                <h1>Face Unlock</h1>
+                <span class="subtitle">Biometric Authentication System</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="status-badge locked" id="status-badge">
+                <span class="status-dot"></span>
+                <span class="status-text">LOCKED</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ======================== NAV ======================== -->
+    <nav class="nav-tabs">
+        <button class="nav-tab active" data-tab="auth">
+            <span class="tab-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+            Authentication
+        </button>
+        <button class="nav-tab" data-tab="register">
+            <span class="tab-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg></span>
+            Register
+        </button>
+        <button class="nav-tab" data-tab="users">
+            <span class="tab-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            Users
+        </button>
+        <button class="nav-tab" data-tab="logs">
+            <span class="tab-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+            Activity
+        </button>
+        <button class="nav-tab" data-tab="settings">
+            <span class="tab-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            Settings
+        </button>
+    </nav>
+
+    <!-- ======================== TAB: AUTH ======================== -->
+    <div class="tab-content active" id="tab-auth">
+        <div class="grid-auth">
+            <!-- Camera -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">
+                        <div class="icon icon-auth"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
+                        Live Camera Feed
+                    </div>
+                </div>
+
+                <div class="camera-container" id="camera-container">
+                    <video id="camera-feed" autoplay playsinline muted class="hidden"></video>
+                    <img id="camera-feed-img" class="hidden" alt="Camera feed">
+
+                    <div class="camera-placeholder" id="camera-placeholder">
+                        <div class="placeholder-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
+                        <p>Camera is off</p>
+                        <p class="cam-hint">Click Start Camera to begin</p>
+                    </div>
+
+                    <!-- Scan overlay -->
+                    <div class="scan-overlay">
+                        <div class="scan-ring-outer"></div>
+                        <div class="scan-ring-inner"></div>
+                        <div class="scan-crosshair-h"></div>
+                        <div class="scan-crosshair-v"></div>
+                        <div class="scan-sweep"></div>
+                    </div>
+
+                    <div class="corner-bracket tl"></div>
+                    <div class="corner-bracket tr"></div>
+                    <div class="corner-bracket bl"></div>
+                    <div class="corner-bracket br"></div>
+
+                    <div class="camera-status-bar">
+                        <div class="cam-label"><span class="rec-dot" id="rec-dot"></span><span>LIVE</span></div>
+                        <span>640 x 480</span>
+                    </div>
+                </div>
+
+                <div class="btn-group mt-3">
+                    <button class="btn btn-primary" id="btn-start-camera">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        Start Camera
+                    </button>
+                    <button class="btn btn-success" id="btn-authenticate">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        Authenticate
+                    </button>
+                    <button class="btn btn-outline" id="btn-lock">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        Lock
+                    </button>
+                </div>
+            </div>
+
+            <!-- Auth Panel -->
+            <div class="auth-panel">
+                <div class="lock-widget locked" id="lock-widget">
+                    <div class="lock-icon-container">
+                        <div class="lock-icon-ring"><span id="lock-icon">🔒</span></div>
+                        <div class="lock-pulse"></div>
+                    </div>
+                    <div class="lock-status-text" id="lock-status-text">LOCKED</div>
+                    <div class="lock-sub-text" id="lock-sub-text">Authenticate to unlock</div>
+                </div>
+
+                <div class="auth-info">
+                    <div class="auth-info-item">
+                        <span class="auth-info-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Identified User</span>
+                        <span class="auth-info-value" id="auth-user-value">&mdash;</span>
+                    </div>
+                    <div class="auth-info-item">
+                        <span class="auth-info-label"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Last Auth</span>
+                        <span class="auth-info-value" id="auth-time-value">&mdash;</span>
+                    </div>
+                </div>
+
+                <div class="confidence-bar-container">
+                    <div class="confidence-label"><span>Match Confidence</span><span id="confidence-percent">0%</span></div>
+                    <div class="confidence-bar"><div class="confidence-fill" id="confidence-fill"></div></div>
+                </div>
+
+                <div class="card" style="padding:16px">
+                    <div class="card-title mb-3" style="font-size:.82rem">
+                        <div class="icon icon-users" style="width:28px;height:28px;font-size:.8rem"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+                        Registered Users
+                    </div>
+                    <div class="user-list" id="auth-users-list">
+                        <div class="empty-state" style="padding:20px"><div class="empty-state-icon">👤</div><p class="empty-state-text">No registered users</p></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================== TAB: REGISTER ======================== -->
+    <div class="tab-content" id="tab-register">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">
+                    <div class="icon icon-register"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg></div>
+                    Register New User
+                </div>
+            </div>
+            <div class="reg-grid">
+                <div>
+                    <div class="camera-container" id="reg-camera-container">
+                        <video id="reg-camera-feed" autoplay playsinline muted class="hidden"></video>
+                        <img id="reg-camera-feed-img" class="hidden" alt="Camera feed">
+                        <div class="camera-placeholder" id="reg-camera-placeholder">
+                            <div class="placeholder-icon"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
+                            <p>Camera is off</p>
+                        </div>
+                        <div class="corner-bracket tl"></div>
+                        <div class="corner-bracket tr"></div>
+                        <div class="corner-bracket bl"></div>
+                        <div class="corner-bracket br"></div>
+                    </div>
+                    <div class="btn-group mt-3">
+                        <button class="btn btn-primary" id="btn-reg-camera">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                            Start Camera
+                        </button>
+                        <button class="btn btn-outline" id="btn-capture">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                            Capture Face
+                        </button>
+                    </div>
+                </div>
+                <div class="reg-form-section">
+                    <div class="reg-capture-area">
+                        <h3>Face Preview</h3>
+                        <div class="capture-preview" id="capture-preview"><span class="capture-placeholder">👤</span></div>
+                        <span class="face-quality-badge hidden" id="face-quality"><span class="quality-dot"></span> Face Detected</span>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="reg-username">Username</label>
+                        <input type="text" class="form-input" id="reg-username" placeholder="Enter a unique username" maxlength="32" autocomplete="off">
+                    </div>
+                    <button class="btn btn-success btn-block btn-lg" id="btn-register">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                        Register Face
+                    </button>
+                    <p class="text-xs text-muted text-center mt-2">Ensure your face is clearly visible and well-lit before capturing.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================== TAB: USERS ======================== -->
+    <div class="tab-content" id="tab-users">
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title"><div class="icon icon-users"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div> Registered Users</div>
+                </div>
+                <div class="user-list" id="users-list">
+                    <div class="empty-state"><div class="empty-state-icon">👤</div><p class="empty-state-text">No registered users</p><p class="empty-state-sub">Go to Register tab to add users</p></div>
+                </div>
+            </div>
+            <div class="flex flex-col gap-3">
+                <div class="stat-card"><div class="stat-value" id="stat-users">0</div><div class="stat-label">Registered Users</div></div>
+                <div class="stat-card"><div class="stat-value" id="stat-events">0</div><div class="stat-label">Total Events</div></div>
+                <div class="stat-card"><div class="stat-value" style="font-size:1.1rem;-webkit-text-fill-color:var(--green);color:var(--green)">AES-256</div><div class="stat-label">Encryption Standard</div></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================== TAB: ACTIVITY ======================== -->
+    <div class="tab-content" id="tab-logs">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title"><div class="icon icon-logs"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div> Activity Log</div>
+                <button class="btn btn-ghost btn-sm" onclick="loadActivity()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Refresh</button>
+            </div>
+            <div class="activity-list" id="activity-list">
+                <div class="empty-state"><div class="empty-state-icon">📋</div><p class="empty-state-text">No activity yet</p><p class="empty-state-sub">Events appear as you use the system</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ======================== TAB: SETTINGS ======================== -->
+    <div class="tab-content" id="tab-settings">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title"><div class="icon icon-settings"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div> System Settings</div>
+            </div>
+            <div class="settings-grid">
+                <div class="settings-section">
+                    <div class="settings-section-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Camera</div>
+                    <div class="form-group">
+                        <label class="form-label">Camera Index</label>
+                        <select class="form-select" id="camera-index"><option value="0">Camera 0 (Default)</option><option value="1">Camera 1</option><option value="2">Camera 2</option><option value="3">Camera 3</option></select>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg> Recognition</div>
+                    <div class="form-group">
+                        <label class="form-label">Matching Threshold</label>
+                        <div class="range-container">
+                            <span class="text-xs text-muted">Strict</span>
+                            <input type="range" class="range-slider" id="threshold-slider" min="0.1" max="0.9" step="0.05" value="0.5">
+                            <span class="text-xs text-muted">Lenient</span>
+                            <span class="range-value" id="threshold-value">0.50</span>
+                        </div>
+                        <p class="text-xs text-muted mt-2">Lower = stricter matching, fewer false positives</p>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Security</div>
+                    <div class="toggle-container"><span class="toggle-label">Auto-lock on inactivity</span><label class="toggle"><input type="checkbox" id="auto-lock" checked><span class="toggle-slider"></span></label></div>
+                    <div class="form-group mt-2">
+                        <label class="form-label">Timeout (seconds)</label>
+                        <input type="number" class="form-input" id="auto-lock-timeout" min="10" max="600" value="60">
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <div class="settings-section-title"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg> Display</div>
+                    <div class="toggle-container"><span class="toggle-label">Show confidence score</span><label class="toggle"><input type="checkbox" id="show-confidence" checked><span class="toggle-slider"></span></label></div>
+                </div>
+            </div>
+            <div class="divider"></div>
+            <div class="flex justify-between items-center">
+                <p class="text-xs text-muted">Settings saved to settings.json</p>
+                <button class="btn btn-primary" id="btn-save-settings">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

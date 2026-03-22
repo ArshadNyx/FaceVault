@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.env
+face_data/
+settings.json
+.DS_Store
+.dual-graph/
+.claude/
