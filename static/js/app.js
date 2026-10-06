@@ -10,6 +10,7 @@ const App = {
     cameraActive: false,
     authRunning: false,
     authInterval: null,
+    authBusy: false,
     videoStream: null,
     useServerCamera: false,
     isLocked: true,
@@ -146,7 +147,7 @@ function startAuthentication() {
     setBtn(btn, 'spinner', 'Scanning…', 'btn-danger', 'btn-success');
 
     doAuthenticate();
-    App.authInterval = setInterval(doAuthenticate, 2000);
+    App.authInterval = setInterval(doAuthenticate, 500);
 }
 
 function stopAuthentication() {
@@ -158,8 +159,9 @@ function stopAuthentication() {
 }
 
 async function doAuthenticate() {
-    if (!App.cameraActive || !App.authRunning) return;
+    if (!App.cameraActive || !App.authRunning || App.authBusy) return;
 
+    App.authBusy = true;
     try {
         let dataUrl;
         if (App.useServerCamera) {
@@ -177,13 +179,14 @@ async function doAuthenticate() {
         const res = await fetch('/api/auth/authenticate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: dataUrl }),
+            body: JSON.stringify({ image: dataUrl, live: true }),
         });
         const data = await res.json();
         handleAuthResult(data);
     } catch (e) {
         console.error('Auth error:', e);
     }
+    App.authBusy = false;
 }
 
 function handleAuthResult(data) {
@@ -218,7 +221,8 @@ function handleAuthResult(data) {
         showToast(`Welcome, ${data.username}`, 'success');
     } else {
         // Silently update UI, no toast spam for failed scans
-        $('#auth-user-value').textContent = 'Scanning…';
+        if (!App.authRunning) return;
+        $('#auth-user-value').textContent = data.message || 'Scanning…';
         $('#auth-user-value').className = 'auth-info-value';
     }
 }
@@ -277,6 +281,8 @@ async function loadAuthStatus() {
 let regStream = null;
 let regCameraActive = false;
 let regUseServer = false;
+let regImages = [];
+const REG_SAMPLES = 5;
 
 function toggleRegCamera() {
     regCameraActive ? stopRegCamera() : startRegCamera();
@@ -333,28 +339,44 @@ async function stopRegCamera() {
 async function captureFrame() {
     if (!regCameraActive) return showToast('Start the camera first', 'warning');
 
-    let dataUrl;
-    if (regUseServer) {
-        try {
-            const data = await (await fetch('/api/camera/frame')).json();
-            dataUrl = data.image;
-        } catch (_) { return showToast('Capture failed', 'error'); }
-    } else {
-        const v = $('#reg-camera-feed');
-        const c = document.createElement('canvas');
-        c.width = v.videoWidth || 640; c.height = v.videoHeight || 480;
-        c.getContext('2d').drawImage(v, 0, 0);
-        dataUrl = c.toDataURL('image/jpeg', 0.9);
+    // Capture a short burst so the server can enrol several samples
+    const btn = $('#btn-capture');
+    btn.disabled = true;
+    showToast('Hold still and look at the camera…', 'info');
+    const images = [];
+    try {
+        for (let i = 0; i < REG_SAMPLES; i++) {
+            if (i) await sleep(300);
+            images.push(await grabRegFrame());
+        }
+    } catch (_) {
+        btn.disabled = false;
+        return showToast('Capture failed', 'error');
     }
+    btn.disabled = false;
+    regImages = images;
 
     const preview = $('#capture-preview');
-    preview.innerHTML = `<img src="${dataUrl}" alt="Captured">`;
+    preview.innerHTML = `<img src="${images[0]}" alt="Captured">`;
     preview.classList.add('has-image');
-    preview.dataset.image = dataUrl;
+    preview.dataset.image = images[0];
     show('#face-quality');
     $('#face-quality').className = 'face-quality-badge good';
-    $('#face-quality').innerHTML = '<span class="quality-dot"></span> Face Detected';
-    showToast('Face captured', 'success');
+    $('#face-quality').innerHTML = `<span class="quality-dot"></span> ${images.length} samples captured`;
+    showToast('Samples captured', 'success');
+}
+
+async function grabRegFrame() {
+    if (regUseServer) {
+        const r = await fetch('/api/camera/frame');
+        if (!r.ok) throw new Error('No frame');
+        return (await r.json()).image;
+    }
+    const v = $('#reg-camera-feed');
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth || 640; c.height = v.videoHeight || 480;
+    c.getContext('2d').drawImage(v, 0, 0);
+    return c.toDataURL('image/jpeg', 0.9);
 }
 
 async function registerUser() {
@@ -373,7 +395,7 @@ async function registerUser() {
         const res = await fetch('/api/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, image: preview.dataset.image }),
+            body: JSON.stringify({ username, images: regImages }),
         });
         const data = await res.json();
 
@@ -383,6 +405,7 @@ async function registerUser() {
             preview.innerHTML = '<span class="capture-placeholder">👤</span>';
             preview.classList.remove('has-image');
             delete preview.dataset.image;
+            regImages = [];
             hide('#face-quality');
             loadUsers();
         } else {

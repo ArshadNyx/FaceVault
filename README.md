@@ -21,7 +21,9 @@ A professional biometric face authentication system built with **FastAPI**, **Op
 
 ## Features
 
-- Real-time face detection and authentication via webcam
+- Real-time face detection and authentication via webcam (YuNet + SFace deep face recognition, 99.45% on LFW)
+- Quality checks (size, pose, lighting, sharpness) before any match, with live hints in the UI
+- Multi-sample enrollment and multi-frame verification before unlocking
 - Encrypted face data storage (Fernet/AES-256 + PBKDF2 key derivation)
 - Multi-user registration and management
 - REST API for integrating face auth into external applications
@@ -53,7 +55,7 @@ A professional biometric face authentication system built with **FastAPI**, **Op
 │         │                 │                  │        │
 │         └─────────────────┼──────────────────┘        │
 │                           │                           │
-│                  OpenCV (Webcam + Haar Cascade)        │
+│      face_engine.py — OpenCV YuNet + SFace (ONNX)     │
 └───────────────────────────────────────────────────────┘
                            │
                     ┌──────▼──────┐
@@ -101,7 +103,7 @@ pip install -r requirements.txt
 
 | Package | Purpose |
 |---------|---------|
-| `opencv-python` | Face detection via Haar Cascade |
+| `opencv-python` | Face detection (YuNet) and recognition (SFace) |
 | `opencv-contrib-python` | Additional OpenCV modules |
 | `numpy` | Numerical computing for face encodings |
 | `Pillow` | Image processing |
@@ -137,6 +139,8 @@ uvicorn server:app --host 0.0.0.0 --port 8000 --reload
 
 The server starts at **http://localhost:8000**.
 
+> **First run:** the face detection and recognition models (~39 MB) are downloaded from the [OpenCV Zoo](https://github.com/opencv/opencv_zoo) into `models/` and verified by checksum.
+
 > **Note:** If accessing from another device on your network, use `http://<your-ip>:8000`. The camera will use server-side MJPEG streaming in this case since `getUserMedia` requires HTTPS or localhost.
 
 ---
@@ -148,12 +152,12 @@ Open **http://localhost:8000** in your browser. The UI has 5 tabs:
 ### Authentication Tab
 1. Click **Start Camera** to activate the webcam
 2. Click **Authenticate** to begin face scanning
-3. When a registered face is detected, the system unlocks automatically and stops scanning
+3. When a registered face is matched on 3 consecutive frames, the system unlocks automatically and stops scanning
 4. Click **Lock** to re-lock the system
 
 ### Register Tab
 1. Click **Start Camera** to activate the webcam
-2. Click **Capture Face** to take a snapshot
+2. Click **Capture Face** — hold still while 5 samples are captured
 3. Enter a **username**
 4. Click **Register Face** to save
 
@@ -168,7 +172,7 @@ Open **http://localhost:8000** in your browser. The UI has 5 tabs:
 
 ### Settings Tab
 - **Camera Index**: Select which camera to use (0 = default)
-- **Matching Threshold**: Adjust strictness (lower = stricter, fewer false positives)
+- **Matching Threshold**: Minimum face similarity to unlock (higher = stricter, fewer false accepts)
 - **Auto-lock**: Enable/disable automatic locking after inactivity
 - **Timeout**: Seconds of inactivity before auto-lock
 - **Show Confidence**: Toggle confidence score display
@@ -183,7 +187,7 @@ All endpoints return JSON. Base URL: `http://localhost:8000`
 
 #### `POST /api/auth/authenticate`
 
-Authenticate a face from a base64-encoded image.
+Authenticate a face from a base64-encoded image. Only the largest face in the image is considered, and it must pass quality checks (size, pose, lighting, sharpness); otherwise `message` says what to fix.
 
 **Request body:**
 ```json
@@ -191,6 +195,8 @@ Authenticate a face from a base64-encoded image.
   "image": "data:image/jpeg;base64,/9j/4AAQ..."
 }
 ```
+
+Add `"live": true` when sending consecutive camera frames (as the web UI does): the system then unlocks only after 3 matching frames in a row and returns `"message": "Verifying… 1/3"` in between.
 
 **Response (success):**
 ```json
@@ -256,6 +262,8 @@ Register a new user with a face image.
   "image": "data:image/jpeg;base64,/9j/4AAQ..."
 }
 ```
+
+For better accuracy send a burst of frames as `"images": ["data:image/jpeg;base64,...", ...]` instead of `image` (the web UI sends 5; at least 3 must pass the quality checks). Registration is rejected if the face already belongs to another user.
 
 **Response:**
 ```json
@@ -470,7 +478,7 @@ Settings are stored in `settings.json` in the project root.
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `camera_index` | int | `0` | Which camera device to use |
-| `threshold` | float | `0.5` | Face matching threshold (0.1–0.9, lower = stricter) |
+| `threshold` | float | `0.5` | Minimum cosine similarity to match (0.3–0.8, higher = stricter) |
 | `auto_lock` | bool | `true` | Auto-lock after inactivity |
 | `auto_lock_timeout` | int | `60` | Seconds before auto-lock triggers |
 | `show_confidence` | bool | `true` | Display confidence percentage in UI |
@@ -484,11 +492,13 @@ face-unlock-system/
 ├── server.py               # FastAPI backend — routes, camera, API
 ├── face_registration.py    # Face detection + encoding for registration
 ├── face_authentication.py  # Face matching against stored encodings
+├── face_engine.py          # Detection, quality checks, embeddings, matching
 ├── secure_storage.py       # Fernet-encrypted face data storage
 ├── static/
 │   ├── index.html          # Single-page web application
 │   ├── css/style.css       # Premium dark theme styles
 │   └── js/app.js           # Frontend logic — camera, auth, UI
+├── models/                 # YuNet + SFace ONNX models (auto-downloaded)
 ├── face_data/              # Encrypted face encodings (auto-created)
 │   ├── encodings.enc       # Encrypted user face data
 │   ├── salt.bin            # PBKDF2 salt
@@ -505,6 +515,7 @@ face-unlock-system/
 
 - **Encryption**: All face encodings are encrypted at rest using Fernet symmetric encryption with PBKDF2-HMAC-SHA256 key derivation (480,000 iterations)
 - **Local-only**: No face data is transmitted to any external server
+- **No liveness detection**: a printed photo or video of a registered user can pass; add an anti-spoofing step before using this to protect anything sensitive
 - **No passwords stored**: Face data is the authentication factor; the system does not store or transmit user passwords
 - **CORS**: Enabled for development; restrict `allow_origins` in production
 - **HTTPS**: For production deployment, use a reverse proxy (nginx) with TLS certificates to enable `getUserMedia` in the browser

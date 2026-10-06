@@ -1,8 +1,8 @@
 """
-Face Authentication Module - Optimized for Real-Time Performance
+Face Authentication Module
 This module handles face recognition and authentication by comparing
-live camera input with stored facial encodings.
-Optimized for high FPS and low latency.
+live camera input with stored facial embeddings (YuNet + SFace, see
+face_engine.py).
 """
 
 import cv2
@@ -10,17 +10,21 @@ import numpy as np
 from typing import Optional, Tuple, List, Dict
 from datetime import datetime
 from secure_storage import get_storage
-import os
+import face_engine
+from face_engine import get_engine
 
 
 class AuthenticationResult:
     """Class to hold authentication results."""
     
     def __init__(self, success: bool, username: str = "", confidence: float = 0.0, 
-                 message: str = "", timestamp: str = "", face_location: Tuple[int, int, int, int] = None):
+                 message: str = "", timestamp: str = "", face_location: Tuple[int, int, int, int] = None,
+                 score: float = 0.0, face_evaluated: bool = False):
         self.success = success
         self.username = username
         self.confidence = confidence
+        self.score = score  # raw cosine similarity to the best-matching user
+        self.face_evaluated = face_evaluated  # a usable face was compared against users
         self.message = message
         self.timestamp = timestamp or datetime.now().isoformat()
         self.face_location = face_location
@@ -30,6 +34,7 @@ class AuthenticationResult:
             'success': self.success,
             'username': self.username,
             'confidence': self.confidence,
+            'score': self.score,
             'message': self.message,
             'timestamp': self.timestamp,
             'face_location': self.face_location
@@ -38,11 +43,12 @@ class AuthenticationResult:
 
 class FaceAuthentication:
     """
-    Optimized face authentication for real-time performance.
-    Uses lightweight detection and fast encoding comparison.
+    Face authentication against enrolled users.
+    Each user has several enrolled embeddings; a probe face must clear the
+    similarity threshold and beat every other user by a margin.
     """
     
-    DEFAULT_THRESHOLD = 0.5
+    DEFAULT_THRESHOLD = face_engine.DEFAULT_THRESHOLD
     
     def __init__(self, camera_index: int = 0, threshold: float = DEFAULT_THRESHOLD):
         self.camera_index = camera_index
@@ -51,62 +57,16 @@ class FaceAuthentication:
         self.storage = get_storage()
         self.is_running = False
         self.known_encodings: Dict[str, np.ndarray] = {}
-        
-        # Optimized face size (smaller = faster)
-        self.face_size = (64, 64)
-        
-        # Frame skipping for performance
-        self.frame_count = 0
-        self.detect_every_n_frames = 2  # Detect faces every 2 frames
-        self.cached_face_locations = []
-        
-        # Initialize face detector
-        self._init_face_detector()
+        self.engine = get_engine()
         
         # Load known encodings
         self._load_known_encodings()
         
-        print("Face authentication module initialized (optimized mode)")
-    
-    def _init_face_detector(self):
-        """Initialize optimized face detector."""
-        # Use YuNet if available (fastest), otherwise Haar Cascade
-        try:
-            # Try to use YuNet (OpenCV's DNN face detector)
-            model_path = os.path.join(os.path.dirname(__file__), 'models', 'face_detection_yunet_2023mar.onnx')
-            if os.path.exists(model_path):
-                self.face_detector = cv2.FaceDetectorYN.create(
-                    model_path, "", (640, 480),
-                    score_threshold=0.7,
-                    nms_threshold=0.3,
-                    top_k=5000
-                )
-                self.use_yunet = True
-                self.use_haar = False
-                print("Using YuNet face detector (fast)")
-            else:
-                raise FileNotFoundError("YuNet model not found")
-        except Exception as e:
-            # Fallback to Haar Cascade (still fast with optimized parameters)
-            print(f"YuNet not available, using Haar Cascade: {e}")
-            self.face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            )
-            self.use_haar = True
-            self.use_yunet = False
-        
-        self.use_dnn = False
+        print("Face authentication module initialized")
     
     def _load_known_encodings(self) -> None:
-        """Load all known face encodings from storage."""
-        users = self.storage.list_users()
-        self.known_encodings = {}
-        
-        for username in users:
-            encoding = self.storage.load_encoding(username)
-            if encoding is not None:
-                self.known_encodings[username] = encoding
-        
+        """Load all known face templates from storage."""
+        self.known_encodings = face_engine.load_templates(self.storage)
         print(f"Loaded {len(self.known_encodings)} registered users")
     
     def reload_encodings(self) -> None:
@@ -159,213 +119,78 @@ class FaceAuthentication:
         return frame
     
     def detect_faces(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
-        """Detect faces with frame skipping for performance."""
-        self.frame_count += 1
-        
-        # Use cached face locations for skipped frames
-        if self.frame_count % self.detect_every_n_frames != 0:
-            return self.cached_face_locations
-        
-        # Detect faces on every Nth frame
-        if self.use_yunet:
-            faces = self._detect_yunet(frame)
-        else:
-            faces = self._detect_haar_fast(frame)
-        
-        self.cached_face_locations = faces
-        return faces
-    
-    def _detect_yunet(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
-        """Fast face detection using YuNet."""
-        h, w = frame.shape[:2]
-        self.face_detector.setInputSize((w, h))
-        
-        _, faces = self.face_detector.detect(frame)
-        
-        result = []
-        if faces is not None:
-            for face in faces:
-                x, y, fw, fh = face[:4].astype(int)
-                # Filter small faces
-                if fw >= 50 and fh >= 50:
-                    result.append((x, y, fw, fh))
-        
-        return result
-    
-    def _detect_haar_fast(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
-        """Optimized Haar Cascade detection."""
-        # Convert to grayscale
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        # Fast detection parameters
-        faces = self.face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.2,  # Larger scale factor = faster
-            minNeighbors=4,   # Fewer neighbors = faster
-            minSize=(50, 50),  # Larger min size = faster
-            flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        
-        return [tuple(f) for f in faces]
+        """Detect faces (x, y, width, height), largest first."""
+        return [f.box for f in self.engine.detect(frame)]
     
     def get_face_encoding(self, frame: np.ndarray, face_location: Tuple[int, int, int, int]) -> Optional[np.ndarray]:
-        """Fast face encoding extraction."""
-        try:
-            x, y, w, h = face_location
-            
-            # Minimal padding
-            padding = 5
-            x1 = max(0, x - padding)
-            y1 = max(0, y - padding)
-            x2 = min(frame.shape[1], x + w + padding)
-            y2 = min(frame.shape[0], y + h + padding)
-            
-            face_img = frame[y1:y2, x1:x2]
-            
-            if face_img.size == 0:
-                return None
-            
-            # Fast preprocessing
-            gray_face = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
-            resized = cv2.resize(gray_face, self.face_size, interpolation=cv2.INTER_LINEAR)
-            
-            # Simple histogram equalization for lighting normalization
-            equalized = cv2.equalizeHist(resized)
-            
-            # Flatten and normalize
-            encoding = equalized.flatten().astype(np.float64)
-            encoding = (encoding - encoding.mean()) / (encoding.std() + 1e-8)
-            
-            return encoding
-            
-        except Exception as e:
-            print(f"Error getting face encoding: {e}")
+        """Embedding of the detected face at the given location, if it passes quality checks."""
+        face = self._face_at(frame, face_location)
+        if face is None:
             return None
+        return self.engine.analyze(frame, face)[0]
+    
+    def _face_at(self, frame: np.ndarray, face_location: Tuple[int, int, int, int]):
+        """Find the detected face whose centre lies closest to the given box."""
+        x, y, w, h = face_location
+        cx, cy = x + w / 2, y + h / 2
+        for face in self.engine.detect(frame):
+            fx, fy, fw, fh = face.box
+            if fx <= cx <= fx + fw and fy <= cy <= fy + fh:
+                return face
+        return None
     
     def calculate_similarity(self, encoding1: np.ndarray, encoding2: np.ndarray) -> float:
-        """Fast similarity calculation using correlation."""
+        """Cosine similarity between two embeddings."""
         if encoding1.shape != encoding2.shape:
             return 0.0
-        
-        # Fast correlation
-        correlation = np.corrcoef(encoding1, encoding2)[0, 1]
-        similarity = (correlation + 1) / 2
-        
-        return max(0.0, min(1.0, similarity))
-    
-    def calculate_distance(self, encoding1: np.ndarray, encoding2: np.ndarray) -> float:
-        """Fast distance calculation."""
-        if encoding1.shape != encoding2.shape:
-            return 1.0
-        
-        # Normalized Euclidean distance
-        diff = encoding1 - encoding2
-        distance = np.sqrt(np.sum(diff * diff)) / len(encoding1)
-        
-        return min(1.0, distance)
+        return float(np.dot(encoding1, encoding2))
     
     def compare_faces(self, encoding: np.ndarray) -> Tuple[Optional[str], float]:
-        """Compare face encoding with known encodings."""
-        if not self.known_encodings:
-            return None, 0.0
-        
-        best_match = None
-        best_similarity = 0.0
-        best_distance = float('inf')
-        
-        for username, known_encoding in self.known_encodings.items():
-            if encoding.shape != known_encoding.shape:
-                continue
-            
-            similarity = self.calculate_similarity(encoding, known_encoding)
-            distance = self.calculate_distance(encoding, known_encoding)
-            
-            if distance < best_distance:
-                best_distance = distance
-                best_similarity = similarity
-                best_match = username
-        
-        if best_distance <= self.threshold:
-            return best_match, best_similarity
-        
-        return None, best_similarity
-    
-    def authenticate_frame(self, frame: np.ndarray) -> List[AuthenticationResult]:
-        """Authenticate all faces in a frame."""
-        results = []
-        
-        face_locations = self.detect_faces(frame)
-        
-        if not face_locations:
-            return [AuthenticationResult(
-                success=False,
-                message="No face detected",
-                confidence=0.0,
-                face_location=None
-            )]
-        
-        for location in face_locations:
-            x, y, w, h = location
-            
-            # Skip small faces
-            if w < 50 or h < 50:
-                continue
-            
-            encoding = self.get_face_encoding(frame, location)
-            
-            if encoding is None:
-                results.append(AuthenticationResult(
-                    success=False,
-                    message="Failed to encode",
-                    confidence=0.0,
-                    face_location=location
-                ))
-                continue
-            
-            username, confidence = self.compare_faces(encoding)
-            
-            if username:
-                results.append(AuthenticationResult(
-                    success=True,
-                    username=username,
-                    confidence=confidence,
-                    message=f"Access granted for {username}",
-                    face_location=location
-                ))
-            else:
-                results.append(AuthenticationResult(
-                    success=False,
-                    confidence=confidence,
-                    message="Access denied",
-                    face_location=location
-                ))
-        
-        return results if results else [AuthenticationResult(
-            success=False,
-            message="No valid face detected",
-            confidence=0.0
-        )]
+        """Compare an embedding with all users. Returns (username or None, score)."""
+        username, score, runner_up = face_engine.best_match(encoding, self.known_encodings)
+        if username and face_engine.is_match(score, runner_up, self.threshold):
+            return username, score
+        return None, score
     
     def authenticate_single_face(self, frame: np.ndarray) -> AuthenticationResult:
-        """Authenticate a single face in the frame."""
-        results = self.authenticate_frame(frame)
+        """
+        Authenticate the most prominent face in the frame. Only the largest
+        face counts, so a registered user in the background cannot unlock
+        the system for whoever is in front of the camera.
+        """
+        faces = self.engine.detect(frame)
+        if not faces:
+            return AuthenticationResult(success=False, message="No face detected")
         
-        if not results:
+        face = faces[0]
+        encoding, issue = self.engine.analyze(frame, face)
+        if encoding is None:
+            return AuthenticationResult(success=False, message=issue, face_location=face.box)
+        
+        if not self.known_encodings:
+            return AuthenticationResult(success=False, message="No registered users",
+                                        face_location=face.box)
+        
+        username, score = self.compare_faces(encoding)
+        confidence = face_engine.score_to_confidence(score)
+        if username:
             return AuthenticationResult(
-                success=False,
-                message="No face detected"
+                success=True, username=username, confidence=confidence, score=score,
+                message=f"Access granted for {username}",
+                face_location=face.box, face_evaluated=True
             )
-        
-        # Return the best result
-        successful_results = [r for r in results if r.success]
-        if successful_results:
-            return max(successful_results, key=lambda r: r.confidence)
-        
-        return results[0]
+        return AuthenticationResult(
+            success=False, confidence=confidence, score=score,
+            message="Face not recognized", face_location=face.box, face_evaluated=True
+        )
+    
+    def authenticate_frame(self, frame: np.ndarray) -> List[AuthenticationResult]:
+        """Authenticate the frame (kept for compatibility; one result per frame)."""
+        return [self.authenticate_single_face(frame)]
     
     def set_threshold(self, threshold: float) -> None:
         """Set the face matching threshold."""
-        self.threshold = max(0.0, min(1.0, threshold))
+        self.threshold = max(face_engine.MIN_THRESHOLD, min(face_engine.MAX_THRESHOLD, threshold))
     
     def get_registered_users(self) -> List[str]:
         """Get list of registered users."""

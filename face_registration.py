@@ -1,22 +1,28 @@
 """
-Face Registration Module - Optimized for Real-Time Performance
-This module handles capturing and storing user facial encodings for registration.
-Optimized for high FPS and smooth video display.
+Face Registration Module
+This module handles capturing and storing user facial embeddings for
+registration (YuNet + SFace, see face_engine.py).
 """
 
 import cv2
 import numpy as np
+from collections import Counter
 from typing import Optional, Tuple, List
 from datetime import datetime
 from secure_storage import get_storage
-import os
+import face_engine
+from face_engine import get_engine
 
 
 class FaceRegistration:
     """
-    Optimized face registration for real-time performance.
-    Uses lightweight detection for smooth video display.
+    Face registration. A user is enrolled from several quality-checked
+    samples so that matching tolerates normal pose and lighting variation.
     """
+    
+    # Good samples required when a burst of frames is supplied
+    MIN_SAMPLES = 3
+    MAX_SAMPLES = 8
     
     def __init__(self, camera_index: int = 0):
         """
@@ -29,47 +35,9 @@ class FaceRegistration:
         self.video_capture: Optional[cv2.VideoCapture] = None
         self.storage = get_storage()
         self.is_running = False
+        self.engine = get_engine()
         
-        # Optimized face size (smaller = faster)
-        self.face_size = (64, 64)
-        
-        # Frame skipping for performance
-        self.frame_count = 0
-        self.detect_every_n_frames = 2
-        self.cached_face_locations = []
-        
-        # Initialize face detector
-        self._init_face_detector()
-        
-        print("Face registration module initialized (optimized mode)")
-    
-    def _init_face_detector(self):
-        """Initialize optimized face detector."""
-        try:
-            # Try YuNet first (fastest)
-            model_path = os.path.join(os.path.dirname(__file__), 'models', 'face_detection_yunet_2023mar.onnx')
-            if os.path.exists(model_path):
-                self.face_detector = cv2.FaceDetectorYN.create(
-                    model_path, "", (640, 480),
-                    score_threshold=0.7,
-                    nms_threshold=0.3,
-                    top_k=5000
-                )
-                self.use_yunet = True
-                self.use_haar = False
-                print("Using YuNet face detector (fast)")
-            else:
-                raise FileNotFoundError("YuNet model not found")
-        except Exception as e:
-            # Fallback to Haar Cascade
-            print(f"YuNet not available, using Haar Cascade: {e}")
-            self.face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            )
-            self.use_haar = True
-            self.use_yunet = False
-        
-        self.use_dnn = False
+        print("Face registration module initialized")
     
     def start_camera(self) -> bool:
         """
@@ -128,101 +96,76 @@ class FaceRegistration:
     
     def detect_faces(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """
-        Detect faces with frame skipping for performance.
+        Detect faces in a frame.
         
         Args:
             frame: Input frame to process
             
         Returns:
-            List of face bounding boxes (x, y, width, height)
+            List of face bounding boxes (x, y, width, height), largest first
         """
-        self.frame_count += 1
-        
-        # Use cached face locations for skipped frames
-        if self.frame_count % self.detect_every_n_frames != 0:
-            return self.cached_face_locations
-        
-        # Detect faces on every Nth frame
-        if self.use_yunet:
-            faces = self._detect_yunet(frame)
-        else:
-            faces = self._detect_haar_fast(frame)
-        
-        self.cached_face_locations = faces
-        return faces
+        return [f.box for f in self.engine.detect(frame)]
     
-    def _detect_yunet(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
-        """Fast face detection using YuNet."""
-        h, w = frame.shape[:2]
-        self.face_detector.setInputSize((w, h))
-        
-        _, faces = self.face_detector.detect(frame)
-        
-        result = []
-        if faces is not None:
-            for face in faces:
-                x, y, fw, fh = face[:4].astype(int)
-                if fw >= 50 and fh >= 50:
-                    result.append((x, y, fw, fh))
-        
-        return result
-    
-    def _detect_haar_fast(self, frame: np.ndarray) -> List[Tuple[int, int, int, int]]:
-        """Optimized Haar Cascade detection."""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        faces = self.face_cascade.detectMultiScale(
-            gray,
-            scaleFactor=1.2,
-            minNeighbors=4,
-            minSize=(50, 50),
-            flags=cv2.CASCADE_SCALE_IMAGE
-        )
-        
-        return [tuple(f) for f in faces]
-    
-    def get_face_encoding(self, frame: np.ndarray, face_location: Tuple[int, int, int, int]) -> Optional[np.ndarray]:
+    def register_user(self, username: str, frames: List[np.ndarray],
+                      threshold: float = face_engine.DEFAULT_THRESHOLD) -> Tuple[bool, str]:
         """
-        Get facial encoding for a specific face location.
+        Register a user from one or more frames of their face.
         
         Args:
-            frame: Input frame
-            face_location: Location of the face (x, y, width, height)
+            username: Username to register
+            frames: Frames containing the face (a short burst works best)
+            threshold: Match threshold used for consistency and duplicate checks
             
         Returns:
-            Face encoding array, or None if encoding failed
+            Tuple of (success, message)
         """
-        try:
-            x, y, w, h = face_location
-            
-            # Minimal padding
-            padding = 5
-            x1 = max(0, x - padding)
-            y1 = max(0, y - padding)
-            x2 = min(frame.shape[1], x + w + padding)
-            y2 = min(frame.shape[0], y + h + padding)
-            
-            face_img = frame[y1:y2, x1:x2]
-            
-            if face_img.size == 0:
-                return None
-            
-            # Fast preprocessing
-            gray_face = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
-            resized = cv2.resize(gray_face, self.face_size, interpolation=cv2.INTER_LINEAR)
-            
-            # Simple histogram equalization
-            equalized = cv2.equalizeHist(resized)
-            
-            # Flatten and normalize
-            encoding = equalized.flatten().astype(np.float64)
-            encoding = (encoding - encoding.mean()) / (encoding.std() + 1e-8)
-            
-            return encoding
-            
-        except Exception as e:
-            print(f"Error getting face encoding: {e}")
-            return None
+        templates = face_engine.load_templates(self.storage)
+        # A user left over with an outdated template may be re-registered in place
+        if username in templates:
+            return False, f"User '{username}' already exists."
+        if not frames:
+            return False, "No image provided."
+        
+        encodings = []
+        issues = Counter()
+        for frame in frames[:self.MAX_SAMPLES]:
+            faces = self.engine.detect(frame)
+            if len(faces) == 0:
+                issues["No face detected. Please try again."] += 1
+                continue
+            if len(faces) > 1:
+                issues["Multiple faces detected. Please ensure only your face is visible."] += 1
+                continue
+            encoding, issue = self.engine.analyze(frame, faces[0], enrolling=True)
+            if encoding is None:
+                issues[issue] += 1
+                continue
+            encodings.append(encoding)
+        
+        required = min(self.MIN_SAMPLES, len(frames))
+        if len(encodings) < required:
+            return False, issues.most_common(1)[0][0]
+        
+        template = np.stack(encodings)
+        # Every sample must be the same person
+        if float((template @ template.T).min()) < threshold:
+            return False, "Captured samples don't match each other. Please capture again."
+        
+        # The same face must not unlock two accounts
+        for encoding in encodings:
+            other, score, _ = face_engine.best_match(encoding, templates)
+            if other and score >= threshold:
+                return False, f"This face is already registered as '{other}'."
+        
+        metadata = {
+            'registration_date': datetime.now().isoformat(),
+            'num_samples': len(encodings)
+        }
+        
+        if self.storage.save_encoding(username, template, metadata):
+            return True, f"User '{username}' registered successfully!"
+        else:
+            return False, "Failed to save user data."
     
     def register_user_single_frame(self, username: str, frame: np.ndarray) -> Tuple[bool, str]:
         """
@@ -235,35 +178,7 @@ class FaceRegistration:
         Returns:
             Tuple of (success, message)
         """
-        if self.storage.user_exists(username):
-            return False, f"User '{username}' already exists."
-        
-        # Use direct detection (bypass frame-skipping meant for video streams)
-        if self.use_yunet:
-            face_locations = self._detect_yunet(frame)
-        else:
-            face_locations = self._detect_haar_fast(frame)
-        
-        if len(face_locations) == 0:
-            return False, "No face detected. Please try again."
-        
-        if len(face_locations) > 1:
-            return False, "Multiple faces detected. Please ensure only your face is visible."
-        
-        encoding = self.get_face_encoding(frame, face_locations[0])
-        
-        if encoding is None:
-            return False, "Failed to generate face encoding. Please try again."
-        
-        metadata = {
-            'registration_date': datetime.now().isoformat(),
-            'num_samples': 1
-        }
-        
-        if self.storage.save_encoding(username, encoding, metadata):
-            return True, f"User '{username}' registered successfully!"
-        else:
-            return False, "Failed to save user data."
+        return self.register_user(username, [frame])
     
     def get_registered_users(self) -> List[str]:
         """

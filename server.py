@@ -12,7 +12,7 @@ import signal
 import time
 from datetime import datetime
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from face_registration import FaceRegistration
 from face_authentication import FaceAuthentication
 from secure_storage import get_storage
+import face_engine
 
 
 # ---------------------------------------------------------------------------
@@ -43,13 +44,20 @@ class AppState:
         self.last_auth_confidence: float = 0.0
         self.auth_running = False
         self.settings = self._load_settings()
+        self.face_auth.set_threshold(self.settings["threshold"])
+        self.settings["threshold"] = self.face_auth.threshold
+        # Consecutive live-scan matches for the same user
+        self.streak_user: Optional[str] = None
+        self.streak_count = 0
+        self.streak_time = 0.0
+        self.last_denied_log = 0.0
         self.activity_log: list[dict] = []
         self.ws_clients: list[WebSocket] = []
 
     def _load_settings(self) -> dict:
         defaults = {
             "camera_index": 0,
-            "threshold": 0.5,
+            "threshold": face_engine.DEFAULT_THRESHOLD,
             "auto_lock": True,
             "auto_lock_timeout": 60,
             "show_confidence": True,
@@ -179,7 +187,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # ---------------------------------------------------------------------------
 class RegisterRequest(BaseModel):
     username: str
-    image: str  # base64 encoded image
+    image: Optional[str] = None  # base64 encoded image
+    images: Optional[List[str]] = None  # burst of base64 images (more accurate)
 
 
 class SettingsUpdate(BaseModel):
@@ -192,6 +201,13 @@ class SettingsUpdate(BaseModel):
 
 class AuthenticateRequest(BaseModel):
     image: str  # base64 encoded image
+    live: bool = False  # continuous scan: unlock only after consecutive matches
+
+
+# Live scans must match the same user this many times in a row
+LIVE_REQUIRED_MATCHES = 3
+LIVE_STREAK_WINDOW = 3.0  # seconds allowed between matching frames
+DENIED_LOG_INTERVAL = 5.0  # seconds between logged/broadcast denials
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +313,27 @@ async def authenticate(req: AuthenticateRequest):
         raise HTTPException(status_code=400, detail="Invalid image data")
 
     result = state.face_auth.authenticate_single_face(frame)
-    if result and result.success:
+
+    now = time.monotonic()
+    if result.success and req.live:
+        if state.streak_user == result.username and now - state.streak_time <= LIVE_STREAK_WINDOW:
+            state.streak_count += 1
+        else:
+            state.streak_user, state.streak_count = result.username, 1
+        state.streak_time = now
+        if state.streak_count < LIVE_REQUIRED_MATCHES:
+            return {
+                "authenticated": False,
+                "username": None,
+                "confidence": 0,
+                "message": f"Verifying… {state.streak_count}/{LIVE_REQUIRED_MATCHES}",
+            }
+    if result.success or result.face_evaluated:
+        # A completed unlock or a rejected face ends the streak; frames with
+        # no usable face just let it expire.
+        state.streak_user, state.streak_count = None, 0
+
+    if result.success:
         state.is_locked = False
         state.last_auth_user = result.username
         state.last_auth_confidence = result.confidence
@@ -320,13 +356,15 @@ async def authenticate(req: AuthenticateRequest):
             "message": result.message,
         }
     else:
-        state.log_activity("Authentication", "Face not recognized", "warning")
-        await broadcast_ws({"type": "auth", "success": False})
+        if result.face_evaluated and now - state.last_denied_log >= DENIED_LOG_INTERVAL:
+            state.last_denied_log = now
+            state.log_activity("Authentication", "Face not recognized", "warning")
+            await broadcast_ws({"type": "auth", "success": False})
         return {
             "authenticated": False,
             "username": None,
             "confidence": 0,
-            "message": result.message if result else "No face detected",
+            "message": result.message,
         }
 
 
@@ -360,15 +398,17 @@ async def register_user(req: RegisterRequest):
     if len(username) < 2:
         raise HTTPException(status_code=400, detail="Username must be at least 2 characters")
 
+    images = req.images or ([req.image] if req.image else [])
+    if not images:
+        raise HTTPException(status_code=400, detail="An image is required")
     try:
-        frame = decode_base64_image(req.image)
+        frames = [decode_base64_image(img) for img in images]
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image data")
 
-    success, message = state.face_reg.register_user_single_frame(username, frame)
+    success, message = state.face_reg.register_user(username, frames, state.face_auth.threshold)
     if success:
-        # Reload auth encodings
-        state.face_auth = FaceAuthentication()
+        state.face_auth.reload_encodings()
         state.log_activity("Registration", f"User '{username}' registered", "success")
     else:
         state.log_activity("Registration", f"Failed: {message}", "error")
@@ -386,7 +426,7 @@ async def list_users():
 async def delete_user(username: str):
     success, _ = state.face_reg.delete_user(username)
     if success:
-        state.face_auth = FaceAuthentication()
+        state.face_auth.reload_encodings()
         state.log_activity("User Management", f"User '{username}' deleted", "warning")
     return {"success": success}
 
@@ -402,10 +442,11 @@ async def get_settings():
 @app.put("/api/settings")
 async def update_settings(req: SettingsUpdate):
     updates = req.model_dump(exclude_none=True)
+    if "threshold" in updates:
+        state.face_auth.set_threshold(updates["threshold"])
+        updates["threshold"] = state.face_auth.threshold
     state.settings.update(updates)
     state.save_settings()
-    if "threshold" in updates:
-        state.face_auth.threshold = updates["threshold"]
     state.log_activity("Settings", f"Updated: {', '.join(updates.keys())}", "info")
     return state.settings
 

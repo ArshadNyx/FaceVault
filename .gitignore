@@ -7,3 +7,5 @@ settings.json
 .DS_Store
 .dual-graph/
 .claude/
+models/
+.claude-flow/
